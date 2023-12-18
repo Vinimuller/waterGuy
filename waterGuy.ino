@@ -1,31 +1,10 @@
-/*
-  Rui Santos
-  Complete project details at https://RandomNerdTutorials.com/telegram-control-esp32-esp8266-nodemcu-outputs/
-  
-  Project created using Brian Lough's Universal Telegram Bot Library: https://github.com/witnessmenow/Universal-Arduino-Telegram-Bot
-  Example based on the Universal Arduino Telegram Bot Library: https://github.com/witnessmenow/Universal-Arduino-Telegram-Bot/blob/master/examples/ESP8266/FlashLED/FlashLED.ino
-*/
 
-#ifdef ESP32
-  #include <WiFi.h>
-#else
-  #include <ESP8266WiFi.h>
-#endif
+#include <ESP8266WiFi.h>
 #include <WiFiClientSecure.h>
 #include <UniversalTelegramBot.h>   // Universal Telegram Bot Library written by Brian Lough: https://github.com/witnessmenow/Universal-Arduino-Telegram-Bot
 #include <ArduinoJson.h>
+#include "credentials.h"
 
-// Replace with your network credentials
-const char* ssid = "Salame2G";
-const char* password = "Um2tres4cinco";
-
-// Initialize Telegram BOT
-#define BOTtoken "6907833879:AAH1WprNyoWBfXKkSisYvLP7OVu1qkLw3aU"  // your Bot Token (Get from Botfather)
-
-// Use @myidbot to find out the chat ID of an individual or a group
-// Also note that you need to click "start" on a bot before it can
-// message you
-#define CHAT_ID "6264510964"
 
 #ifdef ESP8266
   X509List cert(TELEGRAM_CERTIFICATE_ROOT);
@@ -35,13 +14,14 @@ WiFiClientSecure client;
 UniversalTelegramBot bot(BOTtoken, client);
 
 // Checks for new messages every 1 second.
-int botRequestDelay = 1000;
+int           botRequestDelay = 1000;
 unsigned long lastTimeBotRan;
 
 const int     relayPin        = 2;
 bool          relayState      = LOW;
 unsigned long lastRelayActivation;
 unsigned long relayOnTime     = 1000;
+unsigned long lastOnTime      = relayOnTime;
 bool          autoOff         = false;
 
 // Handle what happens when you receive new messages
@@ -52,10 +32,10 @@ void handleNewMessages(int numNewMessages) {
   for (int i=0; i<numNewMessages; i++) {
     // Chat id of the requester
     String chat_id = String(bot.messages[i].chat_id);
-    // if (chat_id != CHAT_ID){
-    //   bot.sendMessage(chat_id, "Unauthorized user", "");
-    //   continue;
-    // }
+    if (chat_id != CHAT_ID){
+      bot.sendMessage(chat_id, "Unauthorized user", "");
+      continue;
+    }
     
     // Print the received message
     String text = bot.messages[i].text;
@@ -67,14 +47,28 @@ void handleNewMessages(int numNewMessages) {
       String welcome = "Welcome, " + from_name + ".\n";
       welcome += "Use the following commands to control your outputs.\n\n";
       welcome += "/on<minutes> to turn ON for X minutes \n";
+      welcome += "/repeat to repeat last ON time \n";
       welcome += "/off to turn OFF \n";
       welcome += "/state to request current state \n";
       bot.sendMessage(chat_id, welcome, "");
     }
 
     if (text.startsWith("/on")) {
-      Serial.println(text.substring(3));
       relayOnTime  = (text.substring(3).toInt()) * 60 * 1000;
+      lastOnTime  = relayOnTime;
+      Serial.println(relayOnTime);
+      
+      relayState = HIGH;
+      digitalWrite(relayPin, relayState);
+      lastRelayActivation = millis();
+      autoOff = true;
+
+      String msg = "Turning irrigation ON for " + String(relayOnTime/1000/60) + " minutes.";
+      bot.sendMessage(chat_id, msg, "");
+    }
+
+    if(text.startsWith("/repeat")) {
+      relayOnTime = lastOnTime;
       Serial.println(relayOnTime);
       
       relayState = HIGH;
@@ -104,13 +98,23 @@ void handleNewMessages(int numNewMessages) {
   }
 }
 
+void connectWifi(){
+  if((WiFi.status() != WL_CONNECTED)){
+    while (WiFi.status() != WL_CONNECTED){
+      delay(1000);
+      Serial.println("Connecting to WiFi..");
+    }
+    // Print ESP32 Local IP Address
+    Serial.println(WiFi.localIP());
+    bot.sendMessage(CHAT_ID, "Surfing", "");
+  }
+}
+
 void setup() {
   Serial.begin(115200);
 
-  #ifdef ESP8266
-    configTime(0, 0, "pool.ntp.org");      // get UTC time via NTP
-    client.setTrustAnchors(&cert); // Add root certificate for api.telegram.org
-  #endif
+  configTime(0, 0, "pool.ntp.org");      // get UTC time via NTP
+  client.setTrustAnchors(&cert); // Add root certificate for api.telegram.org
 
   pinMode(relayPin, OUTPUT);
   digitalWrite(relayPin, relayState);
@@ -118,18 +122,12 @@ void setup() {
   // Connect to Wi-Fi
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
-  #ifdef ESP32
-    client.setCACert(TELEGRAM_CERTIFICATE_ROOT); // Add root certificate for api.telegram.org
-  #endif
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
-    Serial.println("Connecting to WiFi..");
-  }
-  // Print ESP32 Local IP Address
-  Serial.println(WiFi.localIP());
+
+  connectWifi();
 }
 
 void loop() {
+
   if (millis() > lastTimeBotRan + botRequestDelay)  {
     int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
 
@@ -150,9 +148,5 @@ void loop() {
       bot.sendMessage(CHAT_ID, msg, "");
   }
 
-
-
-
-
-
+  connectWifi();
 }
