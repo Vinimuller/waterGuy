@@ -1,11 +1,31 @@
 #include "eventLoop.h"
+#include <ESP8266WiFi.h>
+#include <ArduinoJson.h>
+#include <WiFiClientSecure.h>
+#include <UniversalTelegramBot.h>   // Universal Telegram Bot Library written by Brian Lough: https://github.com/witnessmenow/Universal-Arduino-Telegram-Bot
+#include <FS.h>               // SPIFFS library
+#include "credentials.h"
 
 #ifdef ESP8266
   X509List cert(TELEGRAM_CERTIFICATE_ROOT);
 #endif
-
 WiFiClientSecure client;
 UniversalTelegramBot bot(BOTtoken, client);
+
+const int   relayPin        = 2;
+bool        relayState      = LOW;
+
+unsigned long eventLoopLastMills  = 0;
+unsigned long eventLoopCounter    = 0;
+
+void eventScheduleSetup(){
+  configTime(0, 0, "pool.ntp.org");      // get UTC time via NTP
+
+  pinMode(relayPin, OUTPUT);
+  digitalWrite(relayPin, relayState);
+  
+  client.setTrustAnchors(&cert); // Add root certificate for api.telegram.org
+}
 
 void msgTelegram(String msg){
   if(WiFi.status() == WL_CONNECTED){
@@ -49,8 +69,9 @@ void updateCounterLoop(){
 }
 
 void eventScheduleLoop(){
-  unsigned long now = millis();
+  updateCounterLoop();
 
+  unsigned long now = millis();
   if(now - eventLoopLastMills >= EVENT_LOOP_TICK){
     eventLoopLastMills = now;
     Serial.println("-----------------");
@@ -104,4 +125,37 @@ void eventScheduleLoop(){
       msgTelegram(msg);
     }
   }
+}
+
+String eventLoopNewFile(String json){
+    // Deserialize JSON
+    StaticJsonDocument<MAX_JSON_SIZE> jsonDoc; // Adjust size based on expected JSON data
+    DeserializationError error = deserializeJson(jsonDoc, json);
+
+    // Check if there was an error in parsing JSON
+    if (error) {
+      Serial.print("JSON parsing failed: ");
+      Serial.println(error.c_str());
+      String err = "Bad Request: Invalid JSON";
+      return err;
+    }
+
+    // Open the file for writing
+    File configFile = SPIFFS.open(CONFIG_FILE, "w");
+    if (!configFile) {
+      Serial.println("Failed to open file for writing");
+      String err = "Internal Server Error: Could not open file";
+      return err;
+    }
+
+    // Serialize JSON to the file
+    if (serializeJson(jsonDoc, configFile) == 0) {
+      Serial.println("Failed to write to file");
+      String err = "Internal Server Error: Could not write to file";
+      configFile.close();
+      return err;
+    }
+    configFile.close(); // Close the file after writing
+
+    return "";
 }
