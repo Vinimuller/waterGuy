@@ -111,6 +111,7 @@ void eventScheduleLoop(){
         Serial.print(val);
         Serial.println("");
 
+        pinMode(pin, OUTPUT);
         digitalWrite(pin, val);
 
         String msg = "Time: " + String(time) + " Pin: " + String(pin) + " Value: " + String(val);
