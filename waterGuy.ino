@@ -9,6 +9,12 @@
 #define MAX_JSON_SIZE     400
 #define WIFI_FILE         "/configWifi.json"
 
+const uint8_t ALLOWED_PINS[] = {4, 5, 12, 13, 14, 16};
+const uint8_t ALLOWED_PINS_COUNT = sizeof(ALLOWED_PINS) / sizeof(ALLOWED_PINS[0]);
+bool pinInitialized[17] = {false};   // GPIO 0..16
+bool pinState[17] = {false};         // last known output state
+
+
 // Initialize the ESP8266 server on port 80
 ESP8266WebServer server(80);
 
@@ -36,6 +42,53 @@ int loadWifiSettings(){
     return 0;
   }
 }
+
+bool isAllowedPin(int pin) {
+  for (uint8_t i = 0; i < ALLOWED_PINS_COUNT; i++) {
+    if (ALLOWED_PINS[i] == pin) return true;
+  }
+  return false;
+}
+
+void initOutputPin(int pin) {
+  if (pinInitialized[pin]) return;
+
+  pinMode(pin, OUTPUT);
+  digitalWrite(pin, LOW);        // default safe state
+  pinState[pin] = LOW;
+
+  pinInitialized[pin] = true;
+}
+
+
+void handleTogglePin() {
+
+  if (!server.hasArg("pin")) {
+    server.send(400, "text/plain", "Missing pin parameter");
+    return;
+  }
+
+  int pin = server.arg("pin").toInt();
+
+  if (!isAllowedPin(pin)) {
+    server.send(403, "text/plain", "GPIO not allowed");
+    return;
+  }
+
+  initOutputPin(pin);
+
+  // Toggle
+  pinState[pin] = !pinState[pin];
+  digitalWrite(pin, pinState[pin]);
+
+  String msg = "GPIO ";
+  msg += pin;
+  msg += " is now ";
+  msg += (pinState[pin] ? "ON" : "OFF");
+
+  server.send(200, "text/plain", msg);
+}
+
 
 void handleWifiConfig() {
   if (server.method() == HTTP_POST) {
@@ -118,6 +171,26 @@ void handleSaveConfig() {
   }
 }
 
+void handleStatus() {
+  StaticJsonDocument<512> doc;
+  JsonArray pins = doc.createNestedArray("pins");
+
+  for (uint8_t i = 0; i < ALLOWED_PINS_COUNT; i++) {
+    int pin = ALLOWED_PINS[i];
+
+    JsonObject obj = pins.createNestedObject();
+    obj["pin"] = pin;
+    obj["initialized"] = pinInitialized[pin];
+    obj["state"] = pinInitialized[pin] ? pinState[pin] : 0;
+  }
+
+  String response;
+  serializeJson(doc, response);
+
+  server.send(200, "application/json", response);
+}
+
+
 // Connect to Wi-Fi using stored credentials
 void connectToWiFi() {
   WiFi.mode(WIFI_STA);
@@ -163,6 +236,7 @@ void setup() {
     return;
   }
 
+  Serial.println("We are in!");
   eventScheduleSetup();
   startAccessPoint();
 
@@ -170,6 +244,10 @@ void setup() {
   server.on("/get-file", HTTP_GET, handleFileRequest);
   server.on("/saveConfig",  handleSaveConfig);
   server.on("/",            handleWifiConfig);
+  server.on("/toggle", HTTP_GET, handleTogglePin);
+  server.on("/status", HTTP_GET, handleStatus);
+
+
 
   // Start the server
   server.begin();
