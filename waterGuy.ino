@@ -1,5 +1,7 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClient.h>
 #include <ArduinoJson.h>
 #include <FS.h>               // SPIFFS library
 #include "src/credentials.h"
@@ -166,8 +168,20 @@ void handleSaveConfig() {
     // Respond to the client
     server.send(200, "application/json", "{\"status\": \"success\"}");
   }else{
-    // Get method. return html page
-    server.send(200, "text/html", settingsHtml);
+    // GET method → return html page with file content
+    File file = SPIFFS.open(CONFIG_FILE, "r");
+    if (!file) {
+      server.send(500, "text/plain", "Failed to open file");
+      return;
+    }
+
+    String fileContent = file.readString();
+    file.close();
+
+    String page = settingsHtml;
+    page.replace("{{FILE_CONTENT}}", fileContent);
+
+    server.send(200, "text/html", page);
   }
 }
 
@@ -190,6 +204,56 @@ void handleStatus() {
   server.send(200, "application/json", response);
 }
 
+String buildDeviceInfoMessage() {
+  String msg = "💧 *Water Guy Online*\n\n";
+
+  // --- IP ---
+  msg += "📡 IP: ";
+  if (WiFi.status() == WL_CONNECTED) {
+    msg += WiFi.localIP().toString();
+  } else {
+    msg += "not connected";
+  }
+  msg += "\n";
+
+  // --- WiFi configured ---
+  msg += "📶 WiFi configured: ";
+  msg += (WiFi.SSID().length() > 0) ? "yes\n" : "no\n";
+
+  // --- Telegram commands ---
+  msg += "\n🤖 *Telegram commands:*\n";
+  msg += "/status\n";
+  msg += "/config\n";
+  msg += "/config_set\n";
+  msg += "/config_save\n";
+  msg += "/config_cancel\n";
+
+  // --- Config file ---
+  msg += "\n📄 *Config file:*\n";
+
+  if (!SPIFFS.exists(CONFIG_FILE)) {
+    msg += "❌ Not found\n";
+  } else {
+    File file = SPIFFS.open(CONFIG_FILE, "r");
+    if (!file) {
+      msg += "❌ Failed to open\n";
+    } else {
+      String content = file.readString();
+      file.close();
+
+      // Avoid Telegram overflow
+      if (content.length() > 800) {
+        content = content.substring(0, 800);
+        content += "\n... (truncated)";
+      }
+
+      msg += content + "\n";
+    }
+  }
+
+  return msg;
+}
+
 
 // Connect to Wi-Fi using stored credentials
 void connectToWiFi() {
@@ -208,8 +272,7 @@ void connectToWiFi() {
     Serial.println("\nConnected to Wi-Fi!");
     Serial.print("IP Address: ");
     Serial.println(WiFi.localIP());
-    String msg = "Surfing at: " + WiFi.localIP().toString();
-    msgTelegram(msg);
+    msgTelegram(buildDeviceInfoMessage());
   } else {
     Serial.println("\nFailed to connect to Wi-Fi.");
     startAccessPoint();
@@ -236,7 +299,6 @@ void setup() {
     return;
   }
 
-  Serial.println("We are in!");
   eventScheduleSetup();
   startAccessPoint();
 
@@ -247,11 +309,42 @@ void setup() {
   server.on("/toggle", HTTP_GET, handleTogglePin);
   server.on("/status", HTTP_GET, handleStatus);
 
-
-
   // Start the server
   server.begin();
   Serial.println("Server started!");
+}
+
+bool hasInternet() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+
+  WiFiClient client;
+  HTTPClient http;
+
+  http.setTimeout(3000);
+  http.begin(client, "http://clients3.google.com/generate_204");
+  int code = http.GET();
+  http.end();
+
+  return (code == 204);
+}
+
+void handleInternetFailure(){
+  WiFi.mode(WIFI_OFF);
+  delay(1000);
+  connectToWiFi();
+}
+
+unsigned long lastInternetCheck = 0;
+const unsigned long INTERNET_CHECK_INTERVAL = 60 * 1000; // 1 min
+void checkInternetLoop(){
+  if (millis() - lastInternetCheck > INTERNET_CHECK_INTERVAL) {
+  lastInternetCheck = millis();
+
+    if (!hasInternet()) {
+      handleInternetFailure();
+    }
+  }
+
 }
 
 // Define an enum with typedef (or using alias)
@@ -279,6 +372,7 @@ void loop() {
       case RUNNING:
           //normal operation
           eventScheduleLoop();
+          checkInternetLoop();
           break;
   }
 }

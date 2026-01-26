@@ -18,6 +18,13 @@ bool        relayState      = LOW;
 unsigned long eventLoopLastMills  = 0;
 unsigned long eventLoopCounter    = 0;
 
+bool telegramConfigEdit = false;
+String telegramConfigBuffer = "";
+
+unsigned long lastTelegramCheck = 0;
+const unsigned long TELEGRAM_POLL_INTERVAL = 3000; // 3s
+
+
 void eventScheduleSetup(){
   configTime(0, 0, "pool.ntp.org");      // get UTC time via NTP
 
@@ -30,7 +37,7 @@ void eventScheduleSetup(){
 void msgTelegram(String msg){
   if(WiFi.status() == WL_CONNECTED){
     Serial.println("Sending Telegram");
-    bot.sendMessage(CHAT_ID, msg, "");
+    bot.sendMessage(CHAT_ID, msg, "Markdown");
   }
 }
 
@@ -68,7 +75,182 @@ void updateCounterLoop(){
   }
 }
 
+bool validateConfig(JsonArray config, String &errorMsg) {
+
+  const int MAX_PIN = 17;
+
+  bool pinIsOn[MAX_PIN];
+  int  pinOnTime[MAX_PIN];
+
+  for (int i = 0; i < MAX_PIN; i++) {
+    pinIsOn[i] = false;
+    pinOnTime[i] = -1;
+  }
+
+  for (JsonObject entry : config) {
+
+    if (!entry.containsKey("pin") ||
+        !entry.containsKey("val") ||
+        !entry.containsKey("time")) {
+      errorMsg = "Missing pin/val/time field";
+      return false;
+    }
+
+    int pin  = entry["pin"];
+    int val  = entry["val"];
+    int time = entry["time"];
+
+    if (pin < 0 || pin >= MAX_PIN) {
+      errorMsg = "Invalid pin number: " + String(pin);
+      return false;
+    }
+
+    if (val == 1) {
+      if (pinIsOn[pin]) {
+        errorMsg = "Pin " + String(pin) + " turned ON twice without OFF";
+        return false;
+      }
+      pinIsOn[pin] = true;
+      pinOnTime[pin] = time;
+    }
+    else if (val == 0) {
+      if (!pinIsOn[pin]) {
+        errorMsg = "Pin " + String(pin) + " turned OFF without ON";
+        return false;
+      }
+
+      int duration = time - pinOnTime[pin];
+      if (duration > 60) {
+        errorMsg = "Pin " + String(pin) + " active more than 60 minutes";
+        return false;
+      }
+
+      pinIsOn[pin] = false;
+      pinOnTime[pin] = -1;
+    }
+    else {
+      errorMsg = "Invalid val for pin " + String(pin);
+      return false;
+    }
+  }
+
+  for (int pin = 0; pin < MAX_PIN; pin++) {
+    if (pinIsOn[pin]) {
+      errorMsg = "Pin " + String(pin) + " never turned OFF";
+      return false;
+    }
+  }
+
+  return true;
+}
+
+
+
+void saveTelegramConfig(String chat_id) {
+  StaticJsonDocument<MAX_JSON_SIZE> doc;
+  DeserializationError err = deserializeJson(doc, telegramConfigBuffer);
+
+  if (err) {
+    bot.sendMessage(chat_id, "❌ Invalid JSON. Config NOT saved.", "");
+    return;
+  }
+
+  String errorMsg;
+  if (!validateConfig(doc.as<JsonArray>(), errorMsg)) {
+    bot.sendMessage(chat_id, "❌ Config error: " + errorMsg, "");
+    return;
+  }
+
+  File file = SPIFFS.open(CONFIG_FILE, "w");
+  if (!file) {
+    bot.sendMessage(chat_id, "❌ Failed to write config file", "");
+    return;
+  }
+
+  file.print(telegramConfigBuffer);
+  file.close();
+
+  telegramConfigEdit = false;
+  telegramConfigBuffer = "";
+
+  bot.sendMessage(chat_id, "✅ Config saved successfully", "");
+}
+
+
+void sendTelegramConfig(String chat_id) {
+  File file = SPIFFS.open(CONFIG_FILE, "r");
+  if (!file) {
+    bot.sendMessage(chat_id, "❌ Failed to open config file", "");
+    return;
+  }
+
+  String content = file.readString();
+  file.close();
+
+  bot.sendMessage(chat_id, "📄 Current config:\n\n" + content, "");
+}
+
+
+void telegramLoop() {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  unsigned long now = millis();
+  if (now - lastTelegramCheck < TELEGRAM_POLL_INTERVAL) return;
+  lastTelegramCheck = now;
+
+  int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+
+  while (numNewMessages) {
+    for (int i = 0; i < numNewMessages; i++) {
+
+      String chat_id = bot.messages[i].chat_id;
+      String text    = bot.messages[i].text;
+
+      // SECURITY: only allow owner
+      if (chat_id != CHAT_ID) continue;
+
+      // ----- CONFIG EDIT MODE -----
+      if (telegramConfigEdit) {
+
+        if (text == "/config_save") {
+          saveTelegramConfig(chat_id);
+          continue;
+        }
+
+        if (text == "/config_cancel") {
+          telegramConfigEdit = false;
+          telegramConfigBuffer = "";
+          bot.sendMessage(chat_id, "❌ Config edit cancelled", "");
+          continue;
+        }
+
+        telegramConfigBuffer += text + "\n";
+        continue;
+      }
+
+      // ----- COMMANDS -----
+      if (text == "/config") {
+        sendTelegramConfig(chat_id);
+      }
+      else if (text == "/config_set") {
+        telegramConfigEdit = true;
+        telegramConfigBuffer = "";
+        bot.sendMessage(chat_id,
+          "✍️ Send new config JSON.\n"
+          "Finish with /config_save\n"
+          "Cancel with /config_cancel",
+          ""
+        );
+      }
+    }
+
+    numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+  }
+}
+
+
 void eventScheduleLoop(){
+  telegramLoop();
   updateCounterLoop();
 
   unsigned long now = millis();
