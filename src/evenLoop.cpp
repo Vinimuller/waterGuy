@@ -6,9 +6,6 @@
 #include <FS.h>               // SPIFFS library
 #include "credentials.h"
 
-#ifdef ESP8266
-  X509List cert(TELEGRAM_CERTIFICATE_ROOT);
-#endif
 WiFiClientSecure client;
 UniversalTelegramBot bot(BOTtoken, client);
 
@@ -31,13 +28,26 @@ void eventScheduleSetup(){
   pinMode(relayPin, OUTPUT);
   digitalWrite(relayPin, relayState);
   
-  client.setTrustAnchors(&cert); // Add root certificate for api.telegram.org
+  client.setInsecure();
+
+  if (!SPIFFS.exists(CONFIG_FILE)) {
+    File f = SPIFFS.open(CONFIG_FILE, "w");
+    if (f) {
+      f.print("[]");
+      f.close();
+      Serial.println("Created empty config file");
+    } else {
+      Serial.println("Failed to create config file");
+    }
+  }
 }
 
 void msgTelegram(String msg){
   if(WiFi.status() == WL_CONNECTED){
     Serial.println("Sending Telegram");
-    bot.sendMessage(CHAT_ID, msg, "Markdown");
+    if (!bot.sendMessage(CHAT_ID, msg)) {
+      Serial.println("Telegram send FAILED");
+    }
   }
 }
 
@@ -147,11 +157,18 @@ bool validateConfig(JsonArray config, String &errorMsg) {
 
 
 void saveTelegramConfig(String chat_id) {
-  StaticJsonDocument<MAX_JSON_SIZE> doc;
+  if ((int)telegramConfigBuffer.length() > MAX_JSON_SIZE) {
+    bot.sendMessage(chat_id,
+      "❌ Config too large (" + String(telegramConfigBuffer.length()) + " bytes, max " + String(MAX_JSON_SIZE) + ")", "");
+    return;
+  }
+  DynamicJsonDocument doc(MAX_JSON_SIZE);
   DeserializationError err = deserializeJson(doc, telegramConfigBuffer);
 
   if (err) {
     bot.sendMessage(chat_id, "❌ Invalid JSON. Config NOT saved.", "");
+    Serial.println("Failed to parse JSON: " + String(err.c_str()));
+    Serial.println("config buffer: " + telegramConfigBuffer);
     return;
   }
 
@@ -267,8 +284,14 @@ void eventScheduleLoop(){
       return;
     }
 
+    if ((int)file.size() > MAX_JSON_SIZE) {
+      Serial.println("Config file too large: " + String(file.size()) + " bytes, max " + String(MAX_JSON_SIZE));
+      file.close();
+      return;
+    }
+
     // Allocate the JSON document
-    StaticJsonDocument<MAX_JSON_SIZE> doc;  // Adjust size according to your JSON size
+    DynamicJsonDocument doc(MAX_JSON_SIZE);
     DeserializationError error = deserializeJson(doc, file);
     if (error) {
       Serial.print("Failed to parse JSON: ");
@@ -311,8 +334,11 @@ void eventScheduleLoop(){
 }
 
 String eventLoopNewFile(String json){
+    if ((int)json.length() > MAX_JSON_SIZE) {
+      return "Bad Request: Config too large (" + String(json.length()) + " bytes, max " + String(MAX_JSON_SIZE) + ")";
+    }
     // Deserialize JSON
-    StaticJsonDocument<MAX_JSON_SIZE> jsonDoc; // Adjust size based on expected JSON data
+    DynamicJsonDocument jsonDoc(MAX_JSON_SIZE);
     DeserializationError error = deserializeJson(jsonDoc, json);
 
     // Check if there was an error in parsing JSON

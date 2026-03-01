@@ -9,7 +9,6 @@
 #include "eventLoop.h"
 #include "html.h"
 
-#define MAX_JSON_SIZE     400
 #define WIFI_FILE         "/configWifi.json"
 
 const uint8_t ALLOWED_PINS[] = {4, 5, 12, 13, 14, 16};
@@ -165,11 +164,12 @@ void handleSaveConfig() {
     String err  = eventLoopNewFile(json);
     if(err.length() > 0){
       server.send(500, "text/plain", err);
+      
+    }else{
+      Serial.println("Config saved successfully!");
+      // Respond to the client
+      server.send(200, "application/json", "{\"status\": \"success\"}");
     }
-
-    Serial.println("Config saved successfully!");
-    // Respond to the client
-    server.send(200, "application/json", "{\"status\": \"success\"}");
   }else{
     // GET method → return html page with file content
     String fileContent = "[]";
