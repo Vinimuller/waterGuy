@@ -23,8 +23,6 @@ const unsigned long TELEGRAM_POLL_INTERVAL = 3000; // 3s
 
 
 void eventScheduleSetup(){
-  configTime(0, 0, "pool.ntp.org");      // get UTC time via NTP
-
   pinMode(relayPin, OUTPUT);
   digitalWrite(relayPin, relayState);
   

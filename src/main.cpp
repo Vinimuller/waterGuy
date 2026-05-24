@@ -273,6 +273,8 @@ void connectToWiFi() {
     Serial.println("\nConnected to Wi-Fi!");
     Serial.print("IP Address: ");
     Serial.println(WiFi.localIP());
+    configTime(0, 0, "pool.ntp.org");
+    delay(2000);
     msgTelegram(buildDeviceInfoMessage());
   } else {
     Serial.println("\nFailed to connect to Wi-Fi.");
