@@ -9,8 +9,8 @@
             "name": "PlatformIO",
             "includePath": [
                 "/Users/vini/Documents/git/waterGuy/src",
-                "/Users/vini/.platformio/packages/framework-arduinoespressif8266/libraries/ESP8266WebServer/src",
                 "/Users/vini/.platformio/packages/framework-arduinoespressif8266/libraries/ESP8266HTTPClient/src",
+                "/Users/vini/.platformio/packages/framework-arduinoespressif8266/libraries/ESP8266WebServer/src",
                 "/Users/vini/.platformio/packages/framework-arduinoespressif8266/libraries/ESP8266WiFi/src",
                 "/Users/vini/Documents/git/waterGuy/.pio/libdeps/nodemcuv2/UniversalTelegramBot/src",
                 "/Users/vini/Documents/git/waterGuy/.pio/libdeps/nodemcuv2/ArduinoJson/src",
@@ -59,8 +59,8 @@
                 "limitSymbolsToIncludedHeaders": true,
                 "path": [
                     "/Users/vini/Documents/git/waterGuy/src",
-                    "/Users/vini/.platformio/packages/framework-arduinoespressif8266/libraries/ESP8266WebServer/src",
                     "/Users/vini/.platformio/packages/framework-arduinoespressif8266/libraries/ESP8266HTTPClient/src",
+                    "/Users/vini/.platformio/packages/framework-arduinoespressif8266/libraries/ESP8266WebServer/src",
                     "/Users/vini/.platformio/packages/framework-arduinoespressif8266/libraries/ESP8266WiFi/src",
                     "/Users/vini/Documents/git/waterGuy/.pio/libdeps/nodemcuv2/UniversalTelegramBot/src",
                     "/Users/vini/Documents/git/waterGuy/.pio/libdeps/nodemcuv2/ArduinoJson/src",
