@@ -34,7 +34,10 @@ static void enter(NetState s) {
 // and once per recovery attempt, so it does not meaningfully impact the
 // 10s irrigation reconcile tick.
 static bool hasInternet() {
-  if (WiFi.status() != WL_CONNECTED) return false;
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("hasInternet: WiFi not connected");
+    return false;
+  }
 
   WiFiClient client;
   HTTPClient http;
@@ -43,6 +46,16 @@ static bool hasInternet() {
   int code = http.GET();
   http.end();
 
+  if (code != 204) {
+    Serial.printf("hasInternet: code=%d rssi=%d ch=%d ip=%s gw=%s dns=%s bssid=%s\n",
+                  code,
+                  WiFi.RSSI(),
+                  WiFi.channel(),
+                  WiFi.localIP().toString().c_str(),
+                  WiFi.gatewayIP().toString().c_str(),
+                  WiFi.dnsIP().toString().c_str(),
+                  WiFi.BSSIDstr().c_str());
+  }
   return code == 204;
 }
 

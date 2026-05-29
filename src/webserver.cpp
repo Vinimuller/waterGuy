@@ -11,7 +11,7 @@
 
 static ESP8266WebServer server(80);
 
-static const uint8_t ALLOWED_PINS[] = {4, 5, 12, 13, 14, 16};
+static const uint8_t ALLOWED_PINS[] = {2, 4, 5, 12, 13, 14, 16};
 static const uint8_t ALLOWED_PINS_COUNT = sizeof(ALLOWED_PINS) / sizeof(ALLOWED_PINS[0]);
 static bool pinInitialized[17] = {false};
 static bool pinState[17] = {false};
@@ -74,7 +74,9 @@ static void handleWifiConfig() {
       server.send(400, "text/plain", "Missing ssid or password");
     }
   } else {
-    server.send(200, "text/html", wifiHtml);
+    String page = indexHtml;
+    page.replace("{{FILE_CONTENT}}", irrigationReadConfig());
+    server.send(200, "text/html", page);
   }
 }
 
@@ -108,25 +110,24 @@ static void handleFileRequest() {
 }
 
 static void handleSaveConfig() {
-  if (server.method() == HTTP_POST) {
-    if (server.hasArg("plain") == false) {
-      server.send(400, "text/plain", "Bad Request: No JSON payload found");
-      return;
-    }
-
-    String json = server.arg("plain");
-    String err  = irrigationSaveConfig(json);
-    if (err.length() > 0) {
-      server.send(500, "text/plain", err);
-    } else {
-      Serial.println("Config saved successfully!");
-      server.send(200, "application/json", "{\"status\": \"success\"}");
-    }
+  // Form posts from the index page arrive as application/x-www-form-urlencoded
+  // with the JSON in the `config` field; raw clients (curl --data) land in `plain`.
+  String json;
+  if (server.hasArg("config")) {
+    json = server.arg("config");
+  } else if (server.hasArg("plain")) {
+    json = server.arg("plain");
   } else {
-    String page = settingsHtml;
-    page.replace("{{FILE_CONTENT}}", irrigationReadConfig());
+    server.send(400, "text/plain", "Bad Request: No JSON payload found (expected 'config' field or raw body)");
+    return;
+  }
 
-    server.send(200, "text/html", page);
+  String err = irrigationSaveConfig(json);
+  if (err.length() > 0) {
+    server.send(500, "text/plain", err);
+  } else {
+    Serial.println("Config saved successfully!");
+    server.send(200, "application/json", "{\"status\": \"success\"}");
   }
 }
 
@@ -150,11 +151,11 @@ static void handleStatus() {
 }
 
 void webserverSetup() {
-  server.on("/get-file",   HTTP_GET, handleFileRequest);
-  server.on("/saveConfig", handleSaveConfig);
-  server.on("/",           handleWifiConfig);
-  server.on("/toggle",     HTTP_GET, handleTogglePin);
-  server.on("/status",     HTTP_GET, handleStatus);
+  server.on("/get-file",   HTTP_GET,  handleFileRequest);
+  server.on("/saveConfig", HTTP_POST, handleSaveConfig);
+  server.on("/",                      handleWifiConfig);
+  server.on("/toggle",     HTTP_GET,  handleTogglePin);
+  server.on("/status",     HTTP_GET,  handleStatus);
 
   server.begin();
   Serial.println("Server started!");

@@ -5,6 +5,7 @@
 #include "irrigation.h"
 #include "telegram.h"
 #include "network.h"
+#include "uptime.h"
 #include "webserver.h"
 #include "wifi_config.h"
 
@@ -12,43 +13,6 @@ String ssid;
 String password;
 
 void startAccessPoint();
-
-String buildDeviceInfoMessage() {
-  String msg = "💧 *Water Guy Online*\n\n";
-
-  // --- IP ---
-  msg += "📡 IP: ";
-  if (WiFi.status() == WL_CONNECTED) {
-    msg += WiFi.localIP().toString();
-  } else {
-    msg += "not connected";
-  }
-  msg += "\n";
-
-  // --- WiFi configured ---
-  msg += "📶 WiFi configured: ";
-  msg += (WiFi.SSID().length() > 0) ? "yes\n" : "no\n";
-
-  // --- Telegram commands ---
-  msg += "\n🤖 *Telegram commands:*\n";
-  msg += "/status\n";
-  msg += "/config\n";
-  msg += "/config_set\n";
-  msg += "/config_save\n";
-  msg += "/config_cancel\n";
-
-  // --- Config file ---
-  msg += "\n📄 *Config file:*\n";
-
-  String content = irrigationReadConfig();
-  if (content.length() > 800) {
-    content = content.substring(0, 800);
-    content += "\n... (truncated)";
-  }
-  msg += content + "\n";
-
-  return msg;
-}
 
 // Connect to Wi-Fi using stored credentials
 void connectToWiFi() {
@@ -65,8 +29,13 @@ void connectToWiFi() {
 
   if (WiFi.status() == WL_CONNECTED) {
     Serial.println("\nConnected to Wi-Fi!");
-    Serial.print("IP Address: ");
-    Serial.println(WiFi.localIP());
+    Serial.printf("ip=%s gw=%s dns=%s rssi=%d ch=%d bssid=%s\n",
+                  WiFi.localIP().toString().c_str(),
+                  WiFi.gatewayIP().toString().c_str(),
+                  WiFi.dnsIP().toString().c_str(),
+                  WiFi.RSSI(),
+                  WiFi.channel(),
+                  WiFi.BSSIDstr().c_str());
     configTime(0, 0, "pool.ntp.org");
     delay(2000);
     telegramSend(buildDeviceInfoMessage());
@@ -96,6 +65,7 @@ void setup() {
     return;
   }
 
+  uptimeSetup();
   irrigationSetup();
   telegramSetup();
   startAccessPoint();
@@ -109,6 +79,7 @@ typedef enum {
 SystemState waterGuyState = INIT;
 
 void loop() {
+  uptimeLoop();
   webserverLoop();
 
   switch (waterGuyState) {

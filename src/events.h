@@ -8,6 +8,9 @@ enum class IrrigationEventType {
   ConfigSaved,
   ConfigError,
   ClockSynced,
+  ProgramStarted,
+  ProgramEnded,
+  StartSkipped,
 };
 
 struct IrrigationEvent {

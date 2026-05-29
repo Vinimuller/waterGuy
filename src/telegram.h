@@ -10,4 +10,7 @@ void telegramLoop();
 // from main.cpp). Irrigation should emit events instead.
 void telegramSend(const String& msg);
 
+// Renders the boot/status banner: IP, WiFi state, command list, current config.
+String buildDeviceInfoMessage();
+
 #endif
